@@ -37,10 +37,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CHANGE-ME/simple-llm-guards.git"
+    "url": "git+https://github.com/lucaspdude/simple-llm-guards.git"
   },
   "bugs": {
-    "url": "https://github.com/CHANGE-ME/simple-llm-guards/issues"
+    "url": "https://github.com/lucaspdude/simple-llm-guards/issues"
   },
-  "homepage": "https://github.com/CHANGE-ME/simple-llm-guards#readme"
+  "homepage": "https://github.com/lucaspdude/simple-llm-guards#readme"
 }
