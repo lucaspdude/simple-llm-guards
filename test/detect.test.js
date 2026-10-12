@@ -16,6 +16,10 @@ function withHome(dir, fn) {
 const EMPTY_HOME = path.join(os.tmpdir(), 'guards-empty-home');
 fs.mkdirSync(EMPTY_HOME, { recursive: true });
 
+/** A home that looks like a machine where only omp has ever run. */
+const OMP_HOME = path.join(os.tmpdir(), 'guards-omp-home');
+fs.mkdirSync(path.join(OMP_HOME, '.omp', 'agent'), { recursive: true });
+
 const TMP = path.join(os.tmpdir(), 'guards-bin');
 fs.mkdirSync(TMP, { recursive: true });
 for (const name of ['pi', 'omp']) {
@@ -51,11 +55,15 @@ test('detection reports which signal proved the harness is here', () => {
 });
 
 test('a harness found only by its config directory still counts as present', () => {
-  // omp is on this machine through its config dir even when PATH is empty.
-  const omp = detect('omp', { PATH: '/nonexistent-dir' });
+  // Depends on a directory that exists, not on what happens to be installed on
+  // the machine running the tests.
+  const omp = withHome(OMP_HOME, () => detect('omp', { PATH: '/nonexistent-dir' }));
   assert.equal(omp.present, true);
   assert.equal(omp.via, 'config');
   assert.ok(omp.configDir.endsWith(path.join('.omp', 'agent')));
+
+  const pi = withHome(OMP_HOME, () => detect('pi', { PATH: '/nonexistent-dir' }));
+  assert.equal(pi.present, false, 'a harness with neither signal is absent');
 });
 
 test('every harness is described, found or not', () => {
