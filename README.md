@@ -33,6 +33,14 @@ Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks) ·
 ## Install
 
 ```bash
+npx simple-llm-guards      # no arguments: detect, pick, install
+```
+
+That is the whole install. It copies the runtime to a stable path, shows you the
+harnesses it found pre-checked, and writes the config for the ones you leave
+marked.
+
+```bash
 guards init                # write a starter rules file
 guards install             # detect what is installed, let you pick, wire it up
 guards status              # who is guarded, and what proved it is installed
@@ -282,7 +290,62 @@ on stdin, verdict on stdout, exit code checked — for all four subprocess harne
 ## Uninstall
 
 ```bash
-guards uninstall          # removes our entry from every harness
+guards uninstall          # same picker, removes our entry from each harness
 ```
 
-Shared settings files are restored from the `.bak` written at install time.
+Other tools' hooks in the same file are left alone. Shared settings files keep the
+`.bak` written at install time.
+
+## Releasing
+
+Merging to `main` is the release. `.github/workflows/release.yml` runs on every
+push to `main` and:
+
+1. runs the tests — a red suite publishes nothing,
+2. computes the next version from the commits since the last tag,
+3. commits the bump and pushes the tag back to `main`,
+4. publishes to npm with `--provenance`,
+5. opens the matching GitHub release.
+
+The version comes from [conventional commits](https://www.conventionalcommits.org):
+
+| commit | version |
+|---|---|
+| `feat: …` | minor |
+| `fix:` / `perf:` / `refactor:` | patch |
+| `feat!:` or a `BREAKING CHANGE:` footer | major |
+| `chore:` / `docs:` / `test:` / `ci:` | nothing published |
+
+`chore(release): v1.2.0 [skip release]` is the one commit that does not trigger
+the next run.
+
+### One-time setup
+
+- **npm automation token** → repository secret `NPM_TOKEN` (a granular token
+  scoped to this package, with *Read and write*).
+- Optionally swap the token for
+  [trusted publishing](https://docs.npmjs.com/trusted-publishers/): delete the
+  secret, set the workflow name in the npm package settings, and the
+  `id-token: write` permission already in the workflow is enough.
+
+### Running it locally first
+
+```bash
+npm version 0.2.0 --no-git-tag-version
+npm pack --dry-run     # see exactly what would ship
+npm publish --dry-run  # talk to the registry without publishing
+```
+
+### Where the runtime ends up
+
+`npx` runs from a cache directory npm is free to delete, so installing copies
+the runtime next to your rules file and points every config there:
+
+```
+~/.config/simple-llm-guards/
+├── guards.jsonc     ← your rules
+└── runtime/         ← the hook process every harness calls
+```
+
+Set `GUARDS_CONFIG` and both move together. `guards status` warns you when the
+installed runtime is older than the package you just ran.

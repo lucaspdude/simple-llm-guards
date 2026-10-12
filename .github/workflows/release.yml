@@ -1,0 +1,69 @@
+name: Release
+
+# The whole flow the README promises: merge to main -> version -> tag -> npm.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # push the version bump and the tag
+  id-token: write    # npm provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # The release commit this job pushes must not trigger another release.
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the version bump reads commits since the last tag.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Tests must pass before anything is published
+        run: npm test
+
+      - name: Work out the next version from the commits
+        id: version
+        run: |
+          NEXT=$(node scripts/release.mjs) || { echo "nothing to release"; exit 0; }
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "publishing $NEXT"
+
+      - name: Bump and publish
+        if: steps.version.outputs.next != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore(release): v$VERSION [skip release]"
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin HEAD:main
+          git push origin "v$VERSION"
+
+          # --provenance attaches the build to this commit; the public registry
+          # shows the badge without anyone trusting our word for it.
+          npm publish --provenance --access public
+
+      - name: GitHub release
+        if: steps.version.outputs.next != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.next }}
+        run: gh release create "$TAG" --generate-notes --title "$TAG"

@@ -1,1 +1,46 @@
-{"name": "simple-llm-guards", "version": "0.1.0", "description": "One guard engine, shared by pi, omp, Claude Code, Copilot CLI, Gemini CLI and Antigravity CLI (agy).", "type": "module", "bin": { "guards": "./src/cli.js" }, "exports": { ".": "./src/engine.js", "./adapters/pi": "./src/adapters/pi.js" }, "engines": { "node": ">=20" }, "scripts": { "test": "node --test test/" }, "license": "MIT", "private": true}
+{
+  "name": "simple-llm-guards",
+  "version": "0.1.0",
+  "description": "One guard engine for pi, omp, Claude Code, Copilot CLI, Gemini CLI and Antigravity CLI. npx simple-llm-guards installs it.",
+  "type": "module",
+  "bin": {
+    "guards": "./src/cli.js"
+  },
+  "exports": {
+    ".": "./src/engine.js",
+    "./adapters/pi": "./src/adapters/pi.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "version:next": "node scripts/release.mjs"
+  },
+  "license": "MIT",
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "guardrails",
+    "policy",
+    "hooks",
+    "claude-code",
+    "copilot",
+    "gemini",
+    "antigravity",
+    "coding-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CHANGE-ME/simple-llm-guards.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CHANGE-ME/simple-llm-guards/issues"
+  },
+  "homepage": "https://github.com/CHANGE-ME/simple-llm-guards#readme"
+}

@@ -8,7 +8,9 @@
 // set, and prints whatever that harness expects on stdout. Same binary, five
 // harnesses; only the adapter changes.
 
+import fs from 'node:fs';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { evaluate } from './engine.js';
 import { defaultConfigPath, loadConfig } from './rules.js';
 import * as claude from './adapters/claude.js';
@@ -76,6 +78,23 @@ async function main() {
   process.exit(result.response.exitCode ?? 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Are we the process node was started with?
+ *
+ * Both sides go through realpath: on macOS /tmp and /var are symlinks, so a
+ * plain string compare fails there and main() would silently never run — the
+ * hook would exit 0 on everything and quietly allow every call.
+ */
+function isEntryPoint() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   main();
 }
