@@ -30,19 +30,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          registry-url: https://registry.npmjs.org
+          # No registry-url here on purpose: setup-node would write an
+          # _authToken=${NODE_AUTH_TOKEN} line, and with no token set npm would
+          # send that literal placeholder and break the OIDC path below.
 
-      # Prefer OIDC trusted publishing: with no NPM_TOKEN secret configured,
-      # npm authenticates through this workflow's identity instead.
+      # Two ways in, picked at run time:
+      #   NPM_TOKEN set   -> granular token auth
+      #   NPM_TOKEN unset -> npm trusted publishing, authenticated by this
+      #                      workflow's identity through OIDC
       - name: Authenticate with npm
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -n "$NPM_TOKEN" ]; then
-            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > ~/.npmrc
             echo "using NPM_TOKEN"
           else
-            echo "no NPM_TOKEN — falling back to trusted publishing"
+            rm -f ~/.npmrc
+            echo "no NPM_TOKEN - falling back to trusted publishing"
           fi
 
       - run: npm ci
@@ -72,11 +77,15 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$VERSION" -m "v$VERSION"
-          git push origin "v$VERSION"
 
+          # Publish FIRST, tag second. A tag is the signal that a version is
+          # out; tagging before the upload would make the next run skip past a
+          # version that never shipped.
           # --provenance links the published tarball to this exact commit.
           npm publish --provenance --access public
+
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin "v$VERSION"
 
       - name: GitHub release
         if: steps.version.outputs.next != ''
