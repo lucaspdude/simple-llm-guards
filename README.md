@@ -112,6 +112,79 @@ Set `"failOpen": true` at the top level to downgrade the two error cases to allo
 Fail-closed is the default on purpose: a guard that quietly stops guarding is
 worse than one that gets in the way.
 
+## Manage your guards
+
+Every guard is a line in `guards.jsonc`. You can edit that file by hand — it is
+JSONC precisely so the *reason* a rule exists lives next to it — or drive it from
+a menu.
+
+### `guards manage`
+
+A full-screen menu in any terminal:
+
+```
+$ guards manage
+
+guards  ~/.config/simple-llm-guards/guards.jsonc
+
+  ● on  no-secret-files        read, write, edit, shell — arquivo **/.env, **/*.pem
+  ● on  no-rm-rf-root          shell — command =~ /rm\s+(-[a-zA-Z]*[rf]...)+(/|~)/
+  ○ off  no-git-destruction    shell — command =~ /git\s+.*(push\s+(--force|-f)\b|.../
+  ● on  no-drop-database       shell — command =~ /\b(DROP\s+(DATABASE|TABLE)...
+
+↑↓ move · espaço liga/desliga · n nova · d apaga · q sai
+```
+
+- **space** toggles a guard on or off
+- **n** opens the new-guard wizard
+- **d** deletes a guard (comments and all — this one is not undoable)
+- **q** quits
+
+### `/guards manage` inside pi and omp
+
+The extension registers a slash command, so the same menu opens inside the agent:
+
+```
+> /guards manage
+```
+
+It uses the harness's own dialogs (`select`/`confirm`/`input`) and the same
+`manage.js` core — only the rendering differs. **This only works in pi and omp.**
+The other four harnesses run command hooks (JSON in, JSON out) and have no
+in-process UI, so for them the menu lives in a separate terminal.
+
+### Creating a guard
+
+The wizard asks three things and writes a valid rule:
+
+```
+? que tipo de guarda?
+  ▸ bloquear um comando              ex: rm -rf /, git push --force, npm publish
+    bloquear um arquivo              ex: **/.env, **/.ssh/**, *.pem
+    bloquear um texto em qualquer argumento
+    escrever a regra na mão
+
+? padrão/texto para bloquear: npm\s+publish\b
+? motivo: publicar sem revisar
+✓ criada — no-publish  shell — command =~ /npm\s+publish\b/
+```
+
+Four templates: command, path, text-in-any-argument, and raw JSON. The id is
+derived from the label (`Bloquear deploy!` → `bloquear-deploy`), and an invalid
+regex is rejected before the file is touched.
+
+Scriptable equivalents:
+
+```bash
+guards add --kind command --value 'npm\s+publish\b' --id no-publish --reason 'publicar sem revisar'
+guards enable <id>      # same as guards disable, stated the other way round
+guards disable <id>
+guards rm <id>
+```
+
+**Edits are surgical.** Toggling a guard inserts or removes one line; nothing
+else in the file changes. Your comments and your formatting survive.
+
 ## Test a rule before you install it
 
 ```bash
@@ -141,7 +214,10 @@ src/
 ├── rules.js             JSONC parsing + validation (fails loudly on typos)
 ├── starter.js           the rules `guards init` writes
 ├── guard-hook.js        the one process subprocess harnesses talk to
-├── cli.js               init / install / uninstall / status / rules / check
+├── rules-edit.js        surgical JSONC editing: toggle, delete, insert
+├── manage.js            the shared menu core both surfaces call
+├── tui.js               the standalone guards manage screen
+├── cli.js               init / install / uninstall / status / rules / manage / check
 └── adapters/
     ├── pi.js            in-process for pi and omp
     ├── claude.js        tool_name / tool_input  -> hookSpecificOutput.permissionDecision
@@ -164,7 +240,7 @@ That is the entire cost of supporting a new harness.
 ## Tests
 
 ```bash
-npm test     # 28 tests: engine, every adapter, and the real hook binary end to end
+npm test     # 57 tests: engine, every adapter, the hook binary, the JSONC editor, the menu
 ```
 
 The end-to-end tests spawn `guard-hook.js` exactly the way a harness does — JSON

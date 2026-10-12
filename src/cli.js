@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { evaluate } from './engine.js';
 import { defaultConfigPath, loadConfig } from './rules.js';
 import { HARNESSES } from './normalize.js';
+import { add, buildRule, describeRule, remove, snapshot, toggle } from './manage.js';
 import { STARTER_RULES } from './starter.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -307,7 +308,9 @@ function cmdRules() {
   if (!config.rules.length) { console.log(`no rules loaded from ${config.file}`); return 0; }
   for (const rule of config.rules) {
     const tools = rule.tools ? rule.tools.join(', ') : 'any tool';
-    console.log(`${(rule.action ?? 'deny').padEnd(5)} ${rule.id.padEnd(24)} [${tools}] ${rule.reason ?? ''}`);
+    const span = snapshot(config.file).rules.find((s) => s.id === rule.id);
+    const mark = span && !span.enabled ? 'off' : (rule.action ?? 'deny');
+    console.log(`${mark.padEnd(5)} ${rule.id.padEnd(24)} [${tools}] ${rule.reason ?? ''}`);
   }
   return 0;
 }
@@ -349,6 +352,42 @@ async function cmdCheck(argv) {
   return decision.action === 'deny' ? 3 : 0;
 }
 
+function cmdToggle(argv, on) {
+  const file = defaultConfigPath();
+  const id = argv.find((a) => !a.startsWith('-'));
+  if (!id) { console.log('uso: guards enable|disable <id>'); return 64; }
+  const before = snapshot(file).rules.find((r) => r.id === id);
+  if (!before) { console.log(`regra "${id}" não existe — veja a lista com: guards rules`); return 1; }
+  if (before.enabled === on) { console.log(`${id} já está ${on ? 'ligada' : 'desligada'}`); return 0; }
+  toggle(file, id);
+  console.log(`✓ ${id} ${on ? 'ligada' : 'desligada'}`);
+  return 0;
+}
+
+function cmdRm(argv) {
+  const file = defaultConfigPath();
+  const id = argv.find((a) => !a.startsWith('-'));
+  if (!id) { console.log('uso: guards rm <id>'); return 64; }
+  remove(file, id);
+  console.log(`✓ ${id} removida`);
+  return 0;
+}
+
+function cmdAdd(argv) {
+  const file = defaultConfigPath();
+  const get = (flag) => argAfter(argv, flag);
+  const templateKey = get('--kind') ?? 'command';
+  const value = get('--value');
+  if (!value && templateKey !== 'custom') {
+    console.log("uso: guards add --kind <command|path|text|custom> --value <padrao> [--id <nome>] [--reason <texto>]");
+    return 64;
+  }
+  const rule = buildRule({ id: get('--id'), templateKey, value, reason: get('--reason'), templateText: value });
+  add(file, rule);
+  console.log(`✓ ${rule.id} criada — ${describeRule(rule)}`);
+  return 0;
+}
+
 const USAGE = `guards — one guard engine for pi, omp, Claude Code, Copilot CLI, Gemini CLI and agy
 
   guards init [--force]            write a starter rule set
@@ -356,6 +395,10 @@ const USAGE = `guards — one guard engine for pi, omp, Claude Code, Copilot CLI
   guards uninstall [harness...]
   guards status                    which harnesses are guarded
   guards rules                     list loaded rules
+  guards manage                    the guard menu (also /guards manage inside pi and omp)
+  guards enable|disable <id>       turn one guard on or off
+  guards rm <id>                   delete one guard
+  guards add --kind command --value '<regex>' [--id x] [--reason '...']
   guards check --harness X --tool T --args '{...}'
 
   flags: --dry-run, --force, --harness, --tool, --args, --payload
@@ -370,6 +413,14 @@ async function main(argv) {
     case 'uninstall': case 'remove': return cmdUninstall(rest);
     case 'status': return cmdStatus();
     case 'rules': case 'test': return cmdRules();
+    case 'manage': case 'ui': {
+      const { runManage } = await import('./tui.js');
+      return await runManage(defaultConfigPath());
+    }
+    case 'enable': return cmdToggle(rest, true);
+    case 'disable': return cmdToggle(rest, false);
+    case 'rm': case 'remove-rule': return cmdRm(rest);
+    case 'add': case 'new': return cmdAdd(rest);
     case 'check': return await cmdCheck(rest);
     case 'help': case '--help': case '-h': console.log(USAGE); return 0;
     default: console.log(USAGE); return 64;
