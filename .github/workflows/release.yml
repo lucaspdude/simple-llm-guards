@@ -67,7 +67,9 @@ jobs:
         run: |
           # Rewrites package.json in the workspace only. main is never touched:
           # the next run reads the version from this tag, not from the manifest.
-          npm version "$VERSION" --no-git-tag-version
+          # --allow-same-version matters on the very first release, where the
+          # computed version is exactly what package.json already declares.
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "v$VERSION"
