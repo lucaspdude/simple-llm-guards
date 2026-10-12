@@ -1,13 +1,14 @@
 name: Release
 
-# The whole flow the README promises: merge to main -> version -> tag -> npm.
+# Merging a PR into main is the release. Nothing to remember, nothing to run
+# by hand: the job versions itself from the last tag, publishes, and tags.
 on:
   push:
     branches: [main]
 
 permissions:
-  contents: write   # push the version bump and the tag
-  id-token: write    # npm provenance
+  contents: write   # push the release tag
+  id-token: write    # npm provenance, and trusted publishing if you use it
 
 concurrency:
   group: release
@@ -15,50 +16,64 @@ concurrency:
 
 jobs:
   release:
-    # The release commit this job pushes must not trigger another release.
-    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    # Never publish from an untrusted fork: only the maintainer's own merges.
+    if: github.repository == 'lucaspdude/simple-llm-guards'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history: the version bump reads commits since the last tag.
+          # Full history: the version comes from the previous tag.
           fetch-depth: 0
+          # Lets the release tag trigger a fresh build of the published code.
+          persist-credentials: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
 
+      # Prefer OIDC trusted publishing: with no NPM_TOKEN secret configured,
+      # npm authenticates through this workflow's identity instead.
+      - name: Authenticate with npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            echo "using NPM_TOKEN"
+          else
+            echo "no NPM_TOKEN — falling back to trusted publishing"
+          fi
+
       - run: npm ci
 
       - name: Tests must pass before anything is published
         run: npm test
 
-      - name: Work out the next version from the commits
+      - name: Work out the version to publish
         id: version
         run: |
-          NEXT=$(node scripts/release.mjs) || { echo "nothing to release"; exit 0; }
-          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "publishing $NEXT"
+          if NEXT=$(node scripts/release.mjs); then
+            echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+            echo "publishing $NEXT"
+          else
+            echo "no user-facing commits since the last tag — nothing to publish"
+          fi
 
-      - name: Bump and publish
+      - name: Bump, tag and publish
         if: steps.version.outputs.next != ''
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.next }}
         run: |
-          VERSION="${{ steps.version.outputs.next }}"
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
-
+          # Rewrites package.json in the workspace only. main is never touched:
+          # the next run reads the version from this tag, not from the manifest.
+          npm version "$VERSION" --no-git-tag-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
-          git commit -m "chore(release): v$VERSION [skip release]"
           git tag -a "v$VERSION" -m "v$VERSION"
-          git push origin HEAD:main
           git push origin "v$VERSION"
 
-          # --provenance attaches the build to this commit; the public registry
-          # shows the badge without anyone trusting our word for it.
+          # --provenance links the published tarball to this exact commit.
           npm publish --provenance --access public
 
       - name: GitHub release
@@ -66,4 +81,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ steps.version.outputs.next }}
+        # --generate-notes works out the previous tag on its own.
         run: gh release create "$TAG" --generate-notes --title "$TAG"

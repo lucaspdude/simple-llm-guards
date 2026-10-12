@@ -41,10 +41,23 @@ function nextVersion(dir) {
   }
 }
 
-test('no tag yet: the first release is minor when the commit is a feature', () => {
+test('the very first release publishes the version the manifest declares', () => {
+  // Nothing has shipped yet, so there is nothing to bump past: publishing
+  // 0.1.0 as-is beats jumping straight to 0.2.0 on the first merge.
   const r = repo('0.1.0');
-  r.commit('feat: first thing');
-  assert.equal(nextVersion(r.dir), '0.2.0');
+  r.commit('feat: the first thing');
+  r.commit('fix: a bug');
+  assert.equal(nextVersion(r.dir), '0.1.0');
+  fs.rmSync(r.dir, { recursive: true, force: true });
+});
+
+test('the last tag outranks a stale version in package.json', () => {
+  // The release job never commits its bump, so main's manifest stays behind on
+  // purpose. Deriving from the tag is what keeps the sequence correct.
+  const r = repo('0.1.0');
+  r.git('tag', '-a', 'v3.2.1', '-m', 'v3.2.1');
+  r.commit('feat: something new');
+  assert.equal(nextVersion(r.dir), '3.3.0');
   fs.rmSync(r.dir, { recursive: true, force: true });
 });
 

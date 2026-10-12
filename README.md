@@ -302,31 +302,36 @@ Merging to `main` is the release. `.github/workflows/release.yml` runs on every
 push to `main` and:
 
 1. runs the tests — a red suite publishes nothing,
-2. computes the next version from the commits since the last tag,
-3. commits the bump and pushes the tag back to `main`,
-4. publishes to npm with `--provenance`,
+2. computes the version from the **last git tag** and the commits since it,
+3. writes that version into the manifest in the CI workspace only,
+4. pushes the tag, publishes to npm with `--provenance`,
 5. opens the matching GitHub release.
+
+**The job never commits back to `main`**, so it works on a repository where
+`main` is protected and only pull requests may land. Because the version comes
+from the tag, a merge bump does not leave `main`'s `package.json` behind.
 
 The version comes from [conventional commits](https://www.conventionalcommits.org):
 
 | commit | version |
 |---|---|
+| *(no tag exists yet)* | publishes the version `package.json` already declares |
 | `feat: …` | minor |
 | `fix:` / `perf:` / `refactor:` | patch |
 | `feat!:` or a `BREAKING CHANGE:` footer | major |
 | `chore:` / `docs:` / `test:` / `ci:` | nothing published |
 
-`chore(release): v1.2.0 [skip release]` is the one commit that does not trigger
-the next run.
-
 ### One-time setup
 
-- **npm automation token** → repository secret `NPM_TOKEN` (a granular token
-  scoped to this package, with *Read and write*).
-- Optionally swap the token for
-  [trusted publishing](https://docs.npmjs.com/trusted-publishers/): delete the
-  secret, set the workflow name in the npm package settings, and the
-  `id-token: write` permission already in the workflow is enough.
+- **npm automation token** → repository secret `NPM_TOKEN`. It must be a
+  *granular* token scoped to this package with *Read and write* — and if your
+  account has 2FA on, tick **Bypass 2FA** as well, or every publish fails with
+  `E403 … Two-factor authentication … is required to publish`.
+- Or skip the secret entirely with
+  [trusted publishing](https://docs.npmjs.com/trusted-publishers/): leave
+  `NPM_TOKEN` unset, point the workflow at the package in npm's settings, and
+  the `id-token: write` permission already present is enough. The workflow
+  detects which of the two it should use.
 
 ### Running it locally first
 
