@@ -17,12 +17,17 @@ import { evaluate } from './engine.js';
 import { defaultConfigPath, loadConfig } from './rules.js';
 import { HARNESSES } from './normalize.js';
 import { add, buildRule, describeRule, remove, snapshot, toggle } from './manage.js';
+import { detectAll } from './detect.js';
 import { STARTER_RULES } from './starter.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOK_ENTRY = path.join(HERE, 'guard-hook.js');
 const PI_ENTRY = path.join(HERE, 'adapters', 'pi.js');
 const SENTINEL = 'simple-llm-guards';
+
+const GREEN = '\x1b[32m';
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
 
 const home = os.homedir();
 const PATHS = {
@@ -209,6 +214,19 @@ const INSTALLERS = {
     // ~/.gemini/config/hooks.json is shared with other tools, so presence of the
     // file proves nothing: our own key has to be in it.
     isInstalled: () => Boolean(readJson(PATHS.agy, {})[SENTINEL]),
+    // The file is shared with every other tool that registers an Antigravity
+    // hook, so uninstalling removes our key and leaves the rest untouched.
+    remove({ dryRun }) {
+      const file = PATHS.agy;
+      const all = readJson(file, null);
+      if (!all || !all[SENTINEL]) return 'nothing to remove';
+      delete all[SENTINEL];
+      const text = JSON.stringify(all, null, 2) + '\n';
+      if (dryRun) return text;
+      if (Object.keys(all).length === 0) fs.rmSync(file);
+      else fs.writeFileSync(file, text);
+      return text;
+    },
     preview: () => JSON.stringify({ [SENTINEL]: agyHookDefinition() }, null, 2),
     apply({ dryRun }) {
       // Antigravity keys hooks by name, so merging is one object key.
@@ -252,15 +270,52 @@ function cmdInit(argv) {
   return 0;
 }
 
-function targets(argv) {
-  const named = argv.filter((a) => !a.startsWith('-') && HARNESSES.includes(normalizeName(a)));
-  const list = named.length ? named.map(normalizeName) : HARNESSES;
-  return [...new Set(list)];
+function namedTargets(argv) {
+  return [...new Set(argv.filter((a) => !a.startsWith('-') && HARNESSES.includes(normalizeName(a))).map(normalizeName))];
 }
 
-function cmdInstall(argv) {
+/**
+ * What to install into, in order of preference:
+ *   1. names on the command line — always honoured, never a prompt
+ *   2. --all — every harness, present or not
+ *   3. a checkbox pre-filled with what is actually installed
+ *   4. no terminal: the detected ones, and say which ones out loud
+ */
+async function resolveTargets(argv) {
+  const named = namedTargets(argv);
+  if (named.length) return named;
+  if (argv.includes('--all')) return [...HARNESSES];
+
+  const found = detectAll();
+  const present = found.filter((d) => d.present);
+  if (!present.length) {
+    console.log('nenhuma harness encontrada nesta máquina.');
+    console.log('nomeie na mão: guards install claude gemini   (ou --all para todas)');
+    return [];
+  }
+  if (!process.stdin.isTTY) {
+    console.log('harness detectadas: ' + present.map((d) => d.harness).join(', '));
+    return present.map((d) => d.harness);
+  }
+  const { selectHarnesses } = await import('./tui.js');
+  const chosen = await selectHarnesses(found);
+  if (!chosen) {
+    console.log('cancelado — nada foi escrito.');
+    return [];
+  }
+  if (!chosen.length) {
+    console.log('nenhuma marcada — nada foi escrito.');
+    return [];
+  }
+  return chosen;
+}
+
+async function cmdInstall(argv) {
   const dryRun = argv.includes('--dry-run');
-  const list = targets(argv);
+  // A dry run never prompts: show what an interactive install would choose.
+  const list = dryRun && !namedTargets(argv).length && !argv.includes('--all')
+    ? detectAll().filter((d) => d.present).map((d) => d.harness)
+    : await resolveTargets(argv);
   for (const harness of list) {
     const installer = INSTALLERS[harness];
     if (!installer) { console.log(`${harness}: unknown harness`); continue; }
@@ -275,12 +330,17 @@ function cmdInstall(argv) {
   return 0;
 }
 
-function cmdUninstall(argv) {
+async function cmdUninstall(argv) {
   const dryRun = argv.includes('--dry-run');
-  for (const harness of targets(argv)) {
+  for (const harness of await resolveTargets(argv)) {
     const installer = INSTALLERS[harness];
     if (!installer) continue;
-    if (installer.remove) { installer.remove({ dryRun }); console.log(`✓ ${harness}: entry removed`); continue; }
+    if (installer.remove) {
+      const done = installer.remove({ dryRun });
+      if (done === 'nothing to remove') console.log(`· ${harness}: nothing installed`);
+      else console.log(`✓ ${harness}: entry removed`);
+      continue;
+    }
     const file = PATHS[harness];
     if (fs.existsSync(file)) {
       if (!dryRun) fs.rmSync(file);
@@ -295,10 +355,15 @@ function cmdUninstall(argv) {
 function cmdStatus() {
   const config = loadConfig();
   console.log(`rules: ${config.rules.length} from ${config.file}${config.missing ? ' (file not created yet)' : ''}\n`);
+  const found = new Map(detectAll().map((d) => [d.harness, d]));
   for (const harness of HARNESSES) {
     const on = installed(harness);
-    const mark = on ? '✓' : '·';
-    console.log(`${mark} ${harness.padEnd(8)} ${(INSTALLERS[harness]?.label ?? '').padEnd(40)} ${PATHS[harness]}`);
+    const d = found.get(harness);
+    const mark = on ? GREEN + '✓' + RESET : DIM + '·' + RESET;
+    const seen = d.present
+      ? DIM + (d.via === 'binario' ? d.binary : d.configDir) + RESET
+      : DIM + 'não encontrada' + RESET;
+    console.log(`${mark} ${harness.padEnd(8)} ${(INSTALLERS[harness]?.label ?? '').padEnd(40)} ${seen}`);
   }
   return 0;
 }
@@ -391,8 +456,8 @@ function cmdAdd(argv) {
 const USAGE = `guards — one guard engine for pi, omp, Claude Code, Copilot CLI, Gemini CLI and agy
 
   guards init [--force]            write a starter rule set
-  guards install [harness...]      wire the engine into the harnesses
-  guards uninstall [harness...]
+  guards install [harness...]      detect what is installed, pick, install
+  guards uninstall [harness...]      same picker, to remove
   guards status                    which harnesses are guarded
   guards rules                     list loaded rules
   guards manage                    the guard menu (also /guards manage inside pi and omp)
@@ -401,7 +466,7 @@ const USAGE = `guards — one guard engine for pi, omp, Claude Code, Copilot CLI
   guards add --kind command --value '<regex>' [--id x] [--reason '...']
   guards check --harness X --tool T --args '{...}'
 
-  flags: --dry-run, --force, --harness, --tool, --args, --payload
+  flags: --all (skip the picker), --dry-run, --force, --harness, --tool, --args, --payload
   env:   GUARDS_CONFIG (rules file), GUARDS_LOG=1 (trace to stderr)
 `;
 
@@ -409,8 +474,8 @@ async function main(argv) {
   const [command = 'status', ...rest] = argv;
   switch (command) {
     case 'init': return cmdInit(rest);
-    case 'install': return cmdInstall(rest);
-    case 'uninstall': case 'remove': return cmdUninstall(rest);
+    case 'install': return await cmdInstall(rest);
+    case 'uninstall': case 'remove': return await cmdUninstall(rest);
     case 'status': return cmdStatus();
     case 'rules': case 'test': return cmdRules();
     case 'manage': case 'ui': {

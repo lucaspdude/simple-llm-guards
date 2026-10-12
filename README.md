@@ -34,13 +34,45 @@ Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks) ·
 
 ```bash
 guards init                # write a starter rules file
-guards install             # wire every harness you have installed
-guards status              # who is guarded, and from where
+guards install             # detect what is installed, let you pick, wire it up
+guards status              # who is guarded, and what proved it is installed
 ```
 
-`guards install <harness>` takes one name (`pi`, `omp`, `claude`, `copilot`,
-`gemini`, `agy`, plus aliases like `claude-code`, `antigravity`). Every install is
-idempotent, backs up the file it touches (`.bak`), and understands `--dry-run`.
+`guards install` with no arguments **looks at your machine first** and pre-checks
+what it found:
+
+```
+$ guards install
+
+instalar o motor de guardas em quais harness?
+
+[x] pi       pi                 /Users/lucas/.pi/agent/bin/pi
+[x] omp      omp                /Users/lucas/.local/bin/omp
+[x] claude   Claude Code        /Users/lucas/.local/bin/claude
+[ ] copilot  Copilot CLI        /Users/lucas/.copilot
+[x] gemini   Gemini CLI         /opt/homebrew/bin/gemini
+[x] agy      Antigravity CLI    /Users/lucas/.local/bin/agy
+
+↑↓ move · espaço marca · a todas · i inverte · enter instala · q cancela
+```
+
+Untick what you do not want and press enter. The path on the right is *why* each
+one was found: a binary on `PATH`, or the directory the harness created when it
+first ran.
+
+| you type | what happens |
+|---|---|
+| `guards install` | the checkbox above |
+| `guards install claude gemini` | installs those two, no prompt |
+| `guards install --all` | every harness, detected or not |
+| `guards install --dry-run` | prints exactly what would be written, writes nothing |
+| no terminal (CI) | installs the detected ones and says which |
+
+Every install is idempotent, backs up the file it touches (`.bak`), and
+`guards uninstall` removes only our entry — other tools' hooks in the same file
+stay untouched.
+
+Aliases work too: `claude-code`, `copilot-cli`, `gemini-cli`, `antigravity`, `oh-my-pi`.
 
 Requirements: Node ≥ 20. No dependencies, no build step.
 
@@ -240,7 +272,8 @@ That is the entire cost of supporting a new harness.
 ## Tests
 
 ```bash
-npm test     # 57 tests: engine, every adapter, the hook binary, the JSONC editor, the menu
+npm test     # 71 tests: engine, adapters, the hook binary, the JSONC editor, the menu,
+            # harness detection, and install/uninstall against a throwaway HOME
 ```
 
 The end-to-end tests spawn `guard-hook.js` exactly the way a harness does — JSON
