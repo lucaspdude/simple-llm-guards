@@ -5,6 +5,10 @@ name: Release
 on:
   push:
     branches: [main]
+  # Manual re-run. Needed the first time a version has to be republished after
+  # a failure — the token changed, the registry hiccupped — without inventing a
+  # commit just to trigger the pipeline.
+  workflow_dispatch:
 
 permissions:
   contents: write   # push the release tag
